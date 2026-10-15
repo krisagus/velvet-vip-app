@@ -86,19 +86,21 @@
 - [ ] Prueba de videollamada P2P en vivo de extremo a extremo (Modelo Samsung <-> Gamer Motorola).
 
 ## 6. Protocolo de Ejecución en 3 Fases: Git, Releases v1.5.0, Firebase y Prueba en Vivo
-- [ ] **FASE 1: Blindaje e Inicialización Git + Release v1.5.0 en GitHub**
+- [x] **FASE 1: Blindaje e Inicialización Git + Release v1.5.0 en GitHub**
   - [x] Auditoría pre-Git y configuración de `.gitignore` estricto (Android/Kotlin).
   - [x] Detección de archivos `.json` (`app/google-services.json`) y verificación de privacidad en GitHub (`krisagus/velvet-vip-app` es público).
-  - [ ] Inicialización `git init`, configuración de rama `main` y vinculación con `krisagus/velvet-vip-app`.
-  - [ ] Presentación de `git status` y confirmación de inclusión de `google-services.json`.
-  - [ ] Commit base v1.5.0 y push a GitHub (`main`).
-  - [ ] Creación de tag `v1.5.0` y publicación de Release en GitHub con APKs adjuntos.
-- [ ] **FASE 2: Sincronización de Producción en Firebase Hosting (v1.5.0)**
-  - [ ] Actualización de enlaces en `index.html` hacia el Release de GitHub v1.5.0.
-  - [ ] Despliegue con `firebase deploy --only hosting`.
-  - [ ] Verificación HTTP en vivo (`curl -I`).
+  - [x] Inicialización `git init`, configuración de rama `main` y vinculación con `krisagus/velvet-vip-app`.
+  - [x] Presentación de `git status` y confirmación de inclusión de `google-services.json`.
+  - [x] Commit base v1.5.0 y push a GitHub (`main`) exitoso (`1a7d017`).
+  - [x] Creación de tag `v1.5.0` y publicación de Release en GitHub con APKs adjuntos (`app-velvet-vip.apk` y `app-velvet-modelos.apk`).
+- [x] **FASE 2: Sincronización de Producción en Firebase Hosting (v1.5.0)**
+  - [x] Actualización de enlaces en `index.html` hacia el Release de GitHub v1.5.0 para resolución de descargas globales.
+  - [x] Despliegue con `firebase deploy --only hosting` exitoso en `local-casino-hub-970df`.
+  - [x] Verificación HTTP en vivo (`curl -I https://local-casino-hub-970df.web.app` -> `HTTP/2 200 OK`).
 - [ ] **FASE 3: Preparación de Entorno para Prueba P2P en Vivo**
-  - [ ] Verificación de estado de dispositivos con `adb devices -l`.
-  - [ ] Preparación de script/comando de monitoreo logcat filtrado.
+  - [x] Verificación de estado de dispositivos con `adb devices -l` (Samsung Galaxy A06 en línea por USB y Wi-Fi).
+  - [x] Preparación de script ejecutable de monitoreo [`monitor_p2p_test.sh`](file:///home/asus/AndroidStudioProjects/My1eraApplication/monitor_p2p_test.sh) con filtros WebRTC y AndroidRuntime.
+  - [ ] Reconexión de Motorola Moto G20 (USB o Wi-Fi).
   - [ ] Ejecución de videollamada P2P en vivo (Samsung A06 ↔ Moto G20).
+
 
