@@ -61,6 +61,9 @@ fun ModalBilleteraGanancias(
 
     var titularCuenta by remember { mutableStateOf("") }
     var clabeBancaria by remember { mutableStateOf("") }
+    var metodoRetiro by remember { mutableStateOf("BANCO") } // "BANCO", "MERCADO_PAGO", "CRYPTO_USDT"
+    var redCriptoRetiro by remember { mutableStateOf("TRC20") } // "TRC20", "POLYGON"
+    var walletCriptoRetiro by remember { mutableStateOf("") }
     var montoRetiro by remember {
         mutableStateOf(if (saldoGanadoMxn > 0) String.format("%.2f", saldoGanadoMxn) else "")
     }
@@ -192,51 +195,175 @@ fun ModalBilleteraGanancias(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "💳 Datos para Transferencia Inmediata",
+                    text = "💳 Método de Retiro de Ganancias",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Transfiere a tu cuenta bancaria (CLABE interbancaria de 18 dígitos), tarjeta de débito o cuenta Mercado Pago.",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 11.sp
-                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Selector de método de retiro
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val metodos = listOf(
+                        Triple("BANCO", "🏦 SPEI", Color(0xFF0284C7)),
+                        Triple("MERCADO_PAGO", "🤝 MP", Color(0xFF009EE3)),
+                        Triple("CRYPTO_USDT", "🪙 USDT", Color(0xFF10B981))
+                    )
+                    metodos.forEach { (id, label, colorAccion) ->
+                        val seleccionado = metodoRetiro == id
+                        Button(
+                            onClick = { metodoRetiro = id },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (seleccionado) colorAccion else Color(0xFF1E293B)
+                            ),
+                            border = BorderStroke(1.dp, if (seleccionado) Color.White else Color(0xFF334155)),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Normal,
+                                color = if (seleccionado) Color.White else Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                OutlinedTextField(
-                    value = titularCuenta,
-                    onValueChange = { titularCuenta = it },
-                    label = { Text("Nombre Completo de la Titular") },
-                    placeholder = { Text("Ej. Ana María López") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF0284C7),
-                        unfocusedBorderColor = Color(0xFF475569),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
+                when (metodoRetiro) {
+                    "BANCO" -> {
+                        Text(
+                            text = "Transfiere a tu cuenta bancaria vía SPEI (CLABE de 18 dígitos):",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = titularCuenta,
+                            onValueChange = { titularCuenta = it },
+                            label = { Text("Nombre Completo de la Titular") },
+                            placeholder = { Text("Ej. Ana María López") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF0284C7),
+                                unfocusedBorderColor = Color(0xFF475569),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
 
-                OutlinedTextField(
-                    value = clabeBancaria,
-                    onValueChange = { if (it.length <= 18) clabeBancaria = it },
-                    label = { Text("CLABE (18 dígitos) o Teléfono MP") },
-                    placeholder = { Text("012180001234567890") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF0284C7),
-                        unfocusedBorderColor = Color(0xFF475569),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = clabeBancaria,
+                            onValueChange = { if (it.length <= 18) clabeBancaria = it },
+                            label = { Text("CLABE Interbancaria (18 dígitos)") },
+                            placeholder = { Text("012180001234567890") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF0284C7),
+                                unfocusedBorderColor = Color(0xFF475569),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+                    "MERCADO_PAGO" -> {
+                        Text(
+                            text = "Transfiere directo a tu cuenta de Mercado Pago (Email o Celular):",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        OutlinedTextField(
+                            value = clabeBancaria,
+                            onValueChange = { clabeBancaria = it },
+                            label = { Text("Email o Celular de Mercado Pago") },
+                            placeholder = { Text("modelo@correo.com o 5512345678") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF009EE3),
+                                unfocusedBorderColor = Color(0xFF475569),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+                    "CRYPTO_USDT" -> {
+                        Text(
+                            text = "Recibe tus ganancias en Dólares Cripto (USDT) sin comisiones bancarias:",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { redCriptoRetiro = "TRC20" },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (redCriptoRetiro == "TRC20") Color(0xFF10B981) else Color(0xFF1E293B)
+                                )
+                            ) {
+                                Text("Tron (TRC-20)", fontSize = 11.sp, color = Color.White)
+                            }
+                            Button(
+                                onClick = { redCriptoRetiro = "POLYGON" },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (redCriptoRetiro == "POLYGON") Color(0xFF10B981) else Color(0xFF1E293B)
+                                )
+                            ) {
+                                Text("Polygon (PoS)", fontSize = 11.sp, color = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = walletCriptoRetiro,
+                            onValueChange = { walletCriptoRetiro = it },
+                            label = { Text("Dirección Billetera USDT ($redCriptoRetiro)") },
+                            placeholder = { Text(if (redCriptoRetiro == "TRC20") "TYDnyPshWj..." else "0x71C836...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF10B981),
+                                unfocusedBorderColor = Color(0xFF475569),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+
+                        val montoNum = montoRetiro.toDoubleOrNull() ?: 0.0
+                        if (montoNum > 0) {
+                            val usdtAprox = String.format("%.2f", montoNum / 20.0)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Equivalente estimado: ~$usdtAprox USDT (Tasa $20 MXN/USDT)",
+                                color = Color(0xFF10B981),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -320,18 +447,49 @@ fun ModalBilleteraGanancias(
                         Toast.makeText(context, "Ingresa un monto de retiro válido (hasta $${String.format("%.2f", saldoGanadoMxn)})", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    if (clabeBancaria.length < 10) {
-                        Toast.makeText(context, "Ingresa una CLABE (18 dígitos) o cuenta válida", Toast.LENGTH_SHORT).show()
-                        return@Button
+                    val destinoFinal = when (metodoRetiro) {
+                        "BANCO" -> {
+                            if (clabeBancaria.length < 16) {
+                                Toast.makeText(context, "Ingresa una CLABE interbancaria válida (18 dígitos)", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            "SPEI: $clabeBancaria"
+                        }
+                        "MERCADO_PAGO" -> {
+                            if (clabeBancaria.isBlank() || clabeBancaria.length < 5) {
+                                Toast.makeText(context, "Ingresa un email o teléfono de Mercado Pago válido", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            "MP: $clabeBancaria"
+                        }
+                        "CRYPTO_USDT" -> {
+                            if (walletCriptoRetiro.length < 10) {
+                                Toast.makeText(context, "Ingresa una dirección de billetera USDT válida", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            "USDT-$redCriptoRetiro: $walletCriptoRetiro"
+                        }
+                        else -> clabeBancaria
                     }
-                    onRetirarSaldo(monto, clabeBancaria)
-                    retiroExitosoMensaje = "✅ Solicitud de retiro de $${String.format("%.2f", monto)} MXN procesada con éxito a ${clabeBancaria.takeLast(4)}."
+                    onRetirarSaldo(monto, destinoFinal)
+                    retiroExitosoMensaje = "✅ Solicitud de retiro de $${String.format("%.2f", monto)} MXN procesada con éxito a $destinoFinal."
                     Toast.makeText(context, "Transferencia iniciada exitosamente", Toast.LENGTH_LONG).show()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (metodoRetiro) {
+                        "MERCADO_PAGO" -> Color(0xFF009EE3)
+                        "CRYPTO_USDT" -> Color(0xFF10B981)
+                        else -> Color(0xFF0284C7)
+                    }
+                ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("💳 Procesar Retiro", color = Color.White, fontWeight = FontWeight.Bold)
+                val textoBoton = when (metodoRetiro) {
+                    "MERCADO_PAGO" -> "🤝 Retirar a Mercado Pago"
+                    "CRYPTO_USDT" -> "🪙 Retirar en USDT Cripto"
+                    else -> "💳 Procesar Retiro SPEI"
+                }
+                Text(textoBoton, color = Color.White, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

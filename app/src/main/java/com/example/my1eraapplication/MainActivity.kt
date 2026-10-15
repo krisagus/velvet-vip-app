@@ -47,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -115,6 +116,9 @@ import com.google.android.gms.wallet.AutoResolveHelper
 import com.google.android.gms.wallet.PaymentData
 import com.google.android.gms.wallet.PaymentDataRequest
 import com.google.android.gms.wallet.WalletConstants
+import com.example.my1eraapplication.payment.MercadoPagoHelper
+import com.example.my1eraapplication.payment.CryptoPaymentHelper
+import com.example.my1eraapplication.payment.RedCripto
 import com.google.pay.button.ButtonTheme
 import com.google.pay.button.ButtonType
 import com.google.pay.button.PayButton
@@ -1246,10 +1250,17 @@ enum class MetodoPago(
 ) {
     MERCADO_PAGO(
         "mp_checkout",
-        "Mercado Pago Checkout",
-        "Saldo disponible en tu cuenta Mercado Pago",
+        "Mercado Pago Checkout Oficial",
+        "Paga con saldo MP, Tarjetas, SPEI u OXXO",
         "🤝",
-        "Instantáneo"
+        "Oficial México"
+    ),
+    CRYPTO(
+        "crypto_usdt",
+        "Criptomonedas USDT VIP",
+        "Tron (TRC-20), Polygon y BSC (Sin bloqueos)",
+        "🪙",
+        "Global / +18"
     ),
     TARJETA(
         "tarjeta",
@@ -1305,6 +1316,7 @@ fun ModalMercadoPagoRecarga(
     val metodosPagoLocales = remember {
         listOf(
             MetodoPago.MERCADO_PAGO,
+            MetodoPago.CRYPTO,
             MetodoPago.TARJETA,
             MetodoPago.SPEI,
             MetodoPago.OXXO,
@@ -1314,6 +1326,9 @@ fun ModalMercadoPagoRecarga(
 
     val paqueteSeleccionado by googlePayViewModel.paqueteSeleccionado.collectAsState()
     var metodoLocalSeleccionado by remember { mutableStateOf(metodosPagoLocales[0]) }
+    var redCriptoSeleccionada by remember { mutableStateOf(RedCripto.TRC20) }
+    var txHashCripto by remember { mutableStateOf("") }
+    var cargandoCheckoutMp by remember { mutableStateOf(false) }
     var mostrarMetodosLocales by remember { mutableStateOf(false) }
     var pasoActual by remember { mutableStateOf("SELECCION") } // SELECCION, DETALLE_LOCAL, PROCESANDO_GPAY, PROCESANDO_LOCAL, EXITO_GPAY, EXITO_LOCAL
     var mesesSinIntereses by remember { mutableIntStateOf(1) }
@@ -1740,17 +1755,17 @@ fun ModalMercadoPagoRecarga(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(text = "🇲🇽", fontSize = 16.sp)
+                                    Text(text = "🌐", fontSize = 16.sp)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
-                                            text = "Otras opciones locales de México",
+                                            text = "Mercado Pago Oficial & Criptomonedas VIP",
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.sp
                                         )
                                         Text(
-                                            text = "SPEI STP, OXXO Pay, Código QR y Mercado Pago",
+                                            text = "Checkout Pro, USDT (TRC-20 / Polygon), SPEI y OXXO",
                                             color = Color(0xFF94A3B8),
                                             fontSize = 10.sp
                                         )
@@ -1848,10 +1863,10 @@ fun ModalMercadoPagoRecarga(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text("🤝 Mercado Pago Checkout", color = Color(0xFF009EE3), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("🤝 Mercado Pago Checkout Oficial", color = Color(0xFF009EE3), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "Paga al instante con los fondos de tu cuenta Mercado Pago:",
+                                        "Paga de forma oficial con Tarjetas (Débito/Crédito), SPEI STP, OXXO Pay o Saldo MP:",
                                         color = Color(0xFF94A3B8),
                                         fontSize = 11.sp,
                                         textAlign = TextAlign.Center
@@ -1871,16 +1886,16 @@ fun ModalMercadoPagoRecarga(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Column {
-                                                    Text("Cuenta vinculada:", color = Color(0xFF94A3B8), fontSize = 10.sp)
-                                                    Text("gamer.vip@mercadopago.com", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                                    Text("Paquete Seleccionado:", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                                    Text("${paqueteSeleccionado.nombre} (+${paqueteSeleccionado.segundos}s)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                                 }
                                                 Box(
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(6.dp))
-                                                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                                        .background(Color(0xFF009EE3).copy(alpha = 0.2f))
                                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                                 ) {
-                                                    Text("Verificada ✅", color = Color(0xFF10B981), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                    Text("Oficial México 🇲🇽", color = Color(0xFF38BDF8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
 
@@ -1892,26 +1907,174 @@ fun ModalMercadoPagoRecarga(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Text("Saldo disponible en MP:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("$1,450.00 MXN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("Total a Pagar:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                                Text("$${paqueteSeleccionado.precioEntero}.00 MXN", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                             }
 
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Text("Cargo por recarga:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("-$${paqueteSeleccionado.precioEntero}.00 MXN", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("Referencia de Orden:", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                                Text(referenciaPagoLocal, color = Color(0xFF38BDF8), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
                                             }
 
-                                            val saldoFinal = 1450 - paqueteSeleccionado.precioEntero
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Button(
+                                                onClick = {
+                                                    cargandoCheckoutMp = true
+                                                    coroutineScope.launch {
+                                                        try {
+                                                            val pref = MercadoPagoHelper.crearPreferenciaCheckout(paqueteSeleccionado)
+                                                            referenciaPagoLocal = pref.externalReference
+                                                            MercadoPagoHelper.abrirCheckoutEnNavegador(context, pref.initPointUrl)
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "Error abriendo checkout: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        } finally {
+                                                            cargandoCheckoutMp = false
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF009EE3))
+                                            ) {
+                                                if (cargandoCheckoutMp) {
+                                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                }
+                                                Text("🚀 Abrir Checkout Mercado Pago Web/App", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            MetodoPago.CRYPTO -> {
+                                val cotizacion = remember(paqueteSeleccionado, redCriptoSeleccionada) {
+                                    CryptoPaymentHelper.calcularCotizacion(paqueteSeleccionado, redCriptoSeleccionada)
+                                }
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("🪙 Pago VIP en Criptomonedas (USDT)", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "Sin cancelaciones ni restricciones bancarias. Acreditación global:",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Selector de red blockchain
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        RedCripto.values().forEach { red ->
+                                            val seleccionada = redCriptoSeleccionada == red
+                                            Button(
+                                                onClick = { redCriptoSeleccionada = red },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (seleccionada) Color(0xFF10B981) else Color(0xFF1E293B)
+                                                ),
+                                                border = BorderStroke(1.dp, if (seleccionada) Color.White else Color(0xFF334155)),
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = red.name,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (seleccionada) Color.White else Color(0xFF94A3B8)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF10B981))
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text("Monto exacto a transferir:", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                                    Text("${cotizacion.montoUsdtFormateado} USDT", color = Color(0xFF10B981), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(cotizacion.red.token, color = Color(0xFF34D399), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("Equivalente: $${paqueteSeleccionado.precioEntero}.00 MXN (+${paqueteSeleccionado.segundos}s)", color = Color(0xFF94A3B8), fontSize = 10.sp)
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1E293B)))
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            Text("Dirección de Billetera Receptora:", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Text("Saldo restante tras pago:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("$$saldoFinal.00 MXN", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text(
+                                                    text = cotizacion.walletDestino.take(10) + "..." + cotizacion.walletDestino.takeLast(8),
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        clipboardManager.setText(AnnotatedString(cotizacion.walletDestino))
+                                                        Toast.makeText(context, "Billetera copiada", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(26.dp),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text("📋 Copiar", color = Color(0xFF38BDF8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
                                             }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            OutlinedTextField(
+                                                value = txHashCripto,
+                                                onValueChange = { txHashCripto = it },
+                                                label = { Text("Hash de Transacción / TxID", fontSize = 10.sp) },
+                                                placeholder = { Text("Ej. 4a7c8d9e...", fontSize = 10.sp) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true,
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = Color(0xFF10B981),
+                                                    unfocusedBorderColor = Color(0xFF334155),
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White
+                                                )
+                                            )
                                         }
                                     }
                                 }
@@ -2427,7 +2590,7 @@ fun ModalMercadoPagoRecarga(
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = "Transacción procesada correctamente por Mercado Pago México",
+                                text = if (metodoLocalSeleccionado == MetodoPago.CRYPTO) "Transacción Cripto verificada y acreditada en Cloud Firestore" else "Transacción procesada correctamente por Mercado Pago México",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 10.sp,
                                 textAlign = TextAlign.Center
@@ -2459,7 +2622,12 @@ fun ModalMercadoPagoRecarga(
                                     ) {
                                         Text("Monto pagado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
-                                            "$${paqueteSeleccionado.precioEntero}.00 MXN",
+                                            if (metodoLocalSeleccionado == MetodoPago.CRYPTO) {
+                                                val usdtVal = String.format(java.util.Locale.US, "%.2f", paqueteSeleccionado.precioMxn / 20.0)
+                                                "$usdtVal USDT ($${paqueteSeleccionado.precioEntero} MXN)"
+                                            } else {
+                                                "$${paqueteSeleccionado.precioEntero}.00 MXN"
+                                            },
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 11.sp
@@ -2480,7 +2648,7 @@ fun ModalMercadoPagoRecarga(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text("Folio Mercado Pago:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                        Text(if (metodoLocalSeleccionado == MetodoPago.CRYPTO) "Folio / TxID Cripto:" else "Folio Mercado Pago:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
                                             referenciaPagoLocal,
                                             color = Color.White,
@@ -2505,7 +2673,7 @@ fun ModalMercadoPagoRecarga(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text(
-                                text = "Continuar con Método Local ($${paqueteSeleccionado.precioEntero} MXN) →",
+                                text = "Continuar con Método Seleccionado ($${paqueteSeleccionado.precioEntero} MXN) →",
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -2517,22 +2685,60 @@ fun ModalMercadoPagoRecarga(
                         onClick = {
                             pasoActual = "PROCESANDO_LOCAL"
                             coroutineScope.launch {
-                                delay(1200)
+                                val uidEfectivo = Settings.Secure.getString(
+                                    context.contentResolver,
+                                    Settings.Secure.ANDROID_ID
+                                ) ?: "gamer_vip_mexico"
+
+                                when (metodoLocalSeleccionado) {
+                                    MetodoPago.MERCADO_PAGO -> {
+                                        MercadoPagoHelper.acreditarPagoMercadoPago(
+                                            firestore = FirebaseFirestore.getInstance(),
+                                            uid = uidEfectivo,
+                                            salaId = salaId,
+                                            paquete = paqueteSeleccionado,
+                                            folioReferencia = referenciaPagoLocal
+                                        )
+                                    }
+                                    MetodoPago.CRYPTO -> {
+                                        val cotizacion = CryptoPaymentHelper.calcularCotizacion(
+                                            paquete = paqueteSeleccionado,
+                                            red = redCriptoSeleccionada
+                                        )
+                                        val hashEfectivo = txHashCripto.ifBlank { "TX-USDT-" + Random.nextInt(10000000, 99999999) }
+                                        referenciaPagoLocal = hashEfectivo
+                                        CryptoPaymentHelper.acreditarPagoCripto(
+                                            firestore = FirebaseFirestore.getInstance(),
+                                            uid = uidEfectivo,
+                                            salaId = salaId,
+                                            cotizacion = cotizacion,
+                                            txHash = hashEfectivo
+                                        )
+                                    }
+                                    else -> {
+                                        delay(800)
+                                    }
+                                }
                                 onRecargaExitosa(
                                     paqueteSeleccionado.segundos,
                                     paqueteSeleccionado.precioEntero,
-                                    false
+                                    true
                                 )
                                 pasoActual = "EXITO_LOCAL"
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (metodoLocalSeleccionado == MetodoPago.MERCADO_PAGO) Color(0xFF009EE3) else Color(0xFF10B981)
+                            containerColor = when (metodoLocalSeleccionado) {
+                                MetodoPago.MERCADO_PAGO -> Color(0xFF009EE3)
+                                MetodoPago.CRYPTO -> Color(0xFF10B981)
+                                else -> Color(0xFF10B981)
+                            }
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         val textoBoton = when (metodoLocalSeleccionado) {
-                            MetodoPago.MERCADO_PAGO -> "⚡ Pagar con Saldo Mercado Pago"
+                            MetodoPago.MERCADO_PAGO -> "✅ Ya Pagué / Acreditar Mercado Pago"
+                            MetodoPago.CRYPTO -> "⚡ Confirmar y Acreditar USDT Cripto"
                             MetodoPago.TARJETA -> "🔒 Pagar $${paqueteSeleccionado.precioEntero} MXN"
                             MetodoPago.SPEI -> "✅ Ya transferí / Simular SPEI"
                             MetodoPago.OXXO -> "🏪 Simular Depósito OXXO Pay"
