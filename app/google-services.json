@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "599191378948",
+    "project_id": "local-casino-hub-970df",
+    "storage_bucket": "local-casino-hub-970df.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:599191378948:android:13d719065f92911f032951",
+        "android_client_info": {
+          "package_name": "com.example.my1eraapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBD0cqY5RxJFlA0YZZogDOc77-RUMNImLk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:599191378948:android:0bcf8601d5e10a11032951",
+        "android_client_info": {
+          "package_name": "com.example.my1eraapplication.modelo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBD0cqY5RxJFlA0YZZogDOc77-RUMNImLk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
