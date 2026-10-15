@@ -101,8 +101,37 @@ import com.example.my1eraapplication.model.CatalogoMiniserie
 import com.example.my1eraapplication.model.EscenaMiniserie
 import com.example.my1eraapplication.model.actoEpisodioFromMap
 import com.example.my1eraapplication.model.toMap
+import android.app.Activity
+import android.content.Intent
+import android.provider.Settings
+import androidx.activity.result.IntentSenderRequest
+import com.example.my1eraapplication.googlepay.GooglePayHelper
+import com.example.my1eraapplication.googlepay.GooglePayPaymentResult
+import com.example.my1eraapplication.googlepay.PaqueteTiempoVip
+import com.example.my1eraapplication.viewmodel.GooglePayViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.wallet.AutoResolveHelper
+import com.google.android.gms.wallet.PaymentData
+import com.google.android.gms.wallet.PaymentDataRequest
+import com.google.android.gms.wallet.WalletConstants
+import com.google.pay.button.ButtonTheme
+import com.google.pay.button.ButtonType
+import com.google.pay.button.PayButton
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        var googlePayResultCallback: ((Int, Intent?) -> Unit)? = null
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == GooglePayHelper.LOAD_PAYMENT_DATA_REQUEST_CODE) {
+            googlePayResultCallback?.invoke(resultCode, data)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.setProperty("java.net.preferIPv4Stack", "true")
@@ -982,22 +1011,25 @@ fun PantallaVideollamadaP2P(modifier: Modifier = Modifier) {
                 )
             }
 
-            // MODAL DE RECARGA CON MERCADO PAGO
+            // MODAL DE RECARGA CON GOOGLE PAY Y MERCADO PAGO
             if (mostrarMercadoPagoModal) {
                 ModalMercadoPagoRecarga(
                     saldoSegundos = segundosRestantes,
-                    onRecargaExitosa = { segundosAgregados, precioMxn ->
+                    salaId = salaId,
+                    onRecargaExitosa = { segundosAgregados, precioMxn, yaAcreditadoEnFirestore ->
                         segundosRestantes += segundosAgregados
                         alertaTiempoAgotado = false
-                        coroutineScope.launch {
-                            try {
-                                firestore.collection("salas_videollamada").document(salaId)
-                                    .update(
-                                        "segundos_participante", FieldValue.increment(segundosAgregados.toLong()),
-                                        "ultimo_juego", "💳 ¡Recarga Mercado Pago: +${segundosAgregados}s ($$precioMxn MXN)!"
-                                    )
-                            } catch (e: Exception) {
-                                e.printStackTrace()
+                        if (!yaAcreditadoEnFirestore) {
+                            coroutineScope.launch {
+                                try {
+                                    firestore.collection("salas_videollamada").document(salaId)
+                                        .update(
+                                            "segundos_participante", FieldValue.increment(segundosAgregados.toLong()),
+                                            "ultimo_juego", "💳 ¡Recarga VIP: +${segundosAgregados}s ($$precioMxn MXN)!"
+                                        )
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             }
                         }
                     },
@@ -1250,55 +1282,27 @@ enum class MetodoPago(
 }
 
 /**
- * Modal de Recarga con Mercado Pago en Jetpack Compose
+ * Modal Híbrido de Recarga en Jetpack Compose:
+ * - Primer Plano: Google Pay API v2 Nativo con com.google.pay.button.PayButton
+ * - Escritura Atómica en Cloud Firestore (transacciones + incremento de saldo)
+ * - Sección colapsable inferior con métodos locales de México (SPEI STP, OXXO Pay, QR Mercado Pago)
  */
 @Composable
 fun ModalMercadoPagoRecarga(
     saldoSegundos: Long,
-    onRecargaExitosa: (segundos: Int, precioMxn: Int) -> Unit,
-    onDismiss: () -> Unit
+    salaId: String = "sala_vip_1",
+    onRecargaExitosa: (segundos: Int, precioMxn: Int, yaAcreditadoEnFirestore: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    googlePayViewModel: GooglePayViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    val paquetes = remember {
-        listOf(
-            PaqueteRecarga(
-                id = "basico",
-                nombre = "Paquete Básico",
-                precioMxn = 100,
-                segundosBase = 100,
-                segundosBono = 0,
-                badge = null,
-                icon = "⚡",
-                descripcion = "100s ($1.00/s)"
-            ),
-            PaqueteRecarga(
-                id = "popular",
-                nombre = "Paquete Popular",
-                precioMxn = 300,
-                segundosBase = 300,
-                segundosBono = 30,
-                badge = "⭐ MÁS VENDIDO",
-                icon = "🔥",
-                descripcion = "300s + 30s bono"
-            ),
-            PaqueteRecarga(
-                id = "vip",
-                nombre = "Paquete VIP Máximo",
-                precioMxn = 500,
-                segundosBase = 500,
-                segundosBono = 100,
-                badge = "👑 MEJOR VALOR",
-                icon = "👑",
-                descripcion = "500s + 100s bono"
-            )
-        )
-    }
-
-    val metodosPago = remember {
+    // Catálogo oficial de paquetes VIP en MXN
+    val paquetes = remember { GooglePayHelper.PAQUETES_VIP }
+    val metodosPagoLocales = remember {
         listOf(
             MetodoPago.MERCADO_PAGO,
             MetodoPago.TARJETA,
@@ -1308,17 +1312,188 @@ fun ModalMercadoPagoRecarga(
         )
     }
 
-    var paqueteSeleccionado by remember { mutableStateOf(paquetes[1]) }
-    var metodoSeleccionado by remember { mutableStateOf(metodosPago[0]) }
-    var pasoActual by remember { mutableStateOf("SELECCION") } // SELECCION, DETALLE_METODO, PROCESANDO, EXITO
+    val paqueteSeleccionado by googlePayViewModel.paqueteSeleccionado.collectAsState()
+    var metodoLocalSeleccionado by remember { mutableStateOf(metodosPagoLocales[0]) }
+    var mostrarMetodosLocales by remember { mutableStateOf(false) }
+    var pasoActual by remember { mutableStateOf("SELECCION") } // SELECCION, DETALLE_LOCAL, PROCESANDO_GPAY, PROCESANDO_LOCAL, EXITO_GPAY, EXITO_LOCAL
     var mesesSinIntereses by remember { mutableIntStateOf(1) }
-    var referenciaPago by remember { mutableStateOf("MP-" + Random.nextInt(10000000, 99999999)) }
+    var referenciaPagoLocal by remember { mutableStateOf("MP-" + Random.nextInt(10000000, 99999999)) }
+
+    // Google Pay Client & ViewModel reactivo
+    val isGooglePayReady by googlePayViewModel.isReadyToPay.collectAsState()
+    val paymentsClient = remember {
+        GooglePayHelper.crearPaymentsClient(context, WalletConstants.ENVIRONMENT_TEST)
+    }
+
+    LaunchedEffect(Unit) {
+        googlePayViewModel.verificarDisponibilidad(paymentsClient)
+    }
+
+    var transaccionGPayExito by remember { mutableStateOf<GooglePayPaymentResult?>(null) }
+    var transaccionIdGPay by remember { mutableStateOf("") }
+
+    // Procesamiento y acreditación atómica en Firestore tras éxito de Google Pay
+    fun procesarPagoExitosoGooglePay(paymentData: PaymentData) {
+        coroutineScope.launch {
+            try {
+                val resultado = GooglePayHelper.parsearPaymentData(paymentData)
+                val uidEfectivo = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ANDROID_ID
+                ) ?: "gamer_vip_mexico"
+
+                val resFirestore = GooglePayHelper.acreditarRecargaGooglePay(
+                    firestore = FirebaseFirestore.getInstance(),
+                    uid = uidEfectivo,
+                    salaId = salaId,
+                    resultado = resultado,
+                    montoMxn = paqueteSeleccionado.precioMxn,
+                    segundosAcreditados = paqueteSeleccionado.segundos
+                )
+
+                resFirestore.onSuccess { txnId ->
+                    transaccionIdGPay = txnId
+                    transaccionGPayExito = resultado
+                    pasoActual = "EXITO_GPAY"
+                    googlePayViewModel.notificarExito(txnId, paqueteSeleccionado, resultado)
+                    onRecargaExitosa(paqueteSeleccionado.segundos, paqueteSeleccionado.precioEntero, true)
+                }.onFailure { err ->
+                    pasoActual = "SELECCION"
+                    googlePayViewModel.notificarError(err.message ?: "Error al registrar en Firestore")
+                    Toast.makeText(context, "Error al registrar en Firestore: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                pasoActual = "SELECCION"
+                googlePayViewModel.notificarError(e.message ?: "Error procesando respuesta Google Pay")
+                Toast.makeText(context, "Error procesando respuesta Google Pay: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Launcher con ActivityResultContracts.StartIntentSenderForResult
+    val paymentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        when (result.resultCode) {
+            Activity.RESULT_OK -> {
+                val intent = result.data
+                val paymentData = intent?.let { PaymentData.getFromIntent(it) }
+                if (paymentData != null) {
+                    procesarPagoExitosoGooglePay(paymentData)
+                } else {
+                    pasoActual = "SELECCION"
+                    googlePayViewModel.notificarError("No se recibieron datos de pago")
+                    Toast.makeText(context, "Error: Datos de pago no encontrados", Toast.LENGTH_SHORT).show()
+                }
+            }
+            Activity.RESULT_CANCELED -> {
+                pasoActual = "SELECCION"
+                googlePayViewModel.reiniciarEstado()
+                Toast.makeText(context, "Operación cancelada", Toast.LENGTH_SHORT).show()
+            }
+            AutoResolveHelper.RESULT_ERROR -> {
+                pasoActual = "SELECCION"
+                val status = AutoResolveHelper.getStatusFromIntent(result.data)
+                val msg = status?.statusMessage ?: "Error al procesar con Google Pay"
+                googlePayViewModel.notificarError(msg)
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+            else -> {
+                pasoActual = "SELECCION"
+                googlePayViewModel.reiniciarEstado()
+                Toast.makeText(context, "Operación no completada", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Callback de respaldo para AutoResolveHelper si se delega vía onActivityResult
+    DisposableEffect(Unit) {
+        MainActivity.googlePayResultCallback = { resultCode, intent ->
+            when (resultCode) {
+                Activity.RESULT_OK -> {
+                    val paymentData = intent?.let { PaymentData.getFromIntent(it) }
+                    if (paymentData != null) {
+                        procesarPagoExitosoGooglePay(paymentData)
+                    } else {
+                        pasoActual = "SELECCION"
+                        googlePayViewModel.notificarError("No se recibieron datos de pago en callback")
+                    }
+                }
+                Activity.RESULT_CANCELED -> {
+                    pasoActual = "SELECCION"
+                    googlePayViewModel.reiniciarEstado()
+                }
+                AutoResolveHelper.RESULT_ERROR -> {
+                    pasoActual = "SELECCION"
+                    val status = AutoResolveHelper.getStatusFromIntent(intent)
+                    val msg = status?.statusMessage ?: "Error Google Pay"
+                    googlePayViewModel.notificarError(msg)
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+                else -> {
+                    pasoActual = "SELECCION"
+                    googlePayViewModel.reiniciarEstado()
+                }
+            }
+        }
+        onDispose {
+            MainActivity.googlePayResultCallback = null
+        }
+    }
+
+    // Lanzador oficial de PaymentDataRequest
+    fun lanzarGooglePay() {
+        pasoActual = "PROCESANDO_GPAY"
+        googlePayViewModel.setProcesando()
+        try {
+            val requestJson = GooglePayHelper.obtenerPaymentDataRequestJson(
+                precioMxn = paqueteSeleccionado.precioMxn,
+                environment = WalletConstants.ENVIRONMENT_TEST
+            )
+            val request = PaymentDataRequest.fromJson(requestJson)
+            val task = paymentsClient.loadPaymentData(request)
+            task.addOnCompleteListener { completedTask ->
+                if (completedTask.isSuccessful) {
+                    completedTask.result?.let { paymentData ->
+                        procesarPagoExitosoGooglePay(paymentData)
+                    }
+                } else {
+                    val exception = completedTask.exception
+                    if (exception is ResolvableApiException) {
+                        try {
+                            val intentSenderRequest = IntentSenderRequest.Builder(exception.resolution).build()
+                            paymentLauncher.launch(intentSenderRequest)
+                        } catch (e: Exception) {
+                            val act = context as? Activity
+                            if (act != null) {
+                                AutoResolveHelper.resolveTask(task, act, GooglePayHelper.LOAD_PAYMENT_DATA_REQUEST_CODE)
+                            } else {
+                                pasoActual = "SELECCION"
+                                googlePayViewModel.notificarError(e.message ?: "Error al lanzar Google Pay")
+                                Toast.makeText(context, "Error al lanzar Google Pay: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        pasoActual = "SELECCION"
+                        val errorMsg = exception?.localizedMessage ?: "No se pudo iniciar Google Pay"
+                        googlePayViewModel.notificarError(errorMsg)
+                        Toast.makeText(context, "Error: $errorMsg", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            pasoActual = "SELECCION"
+            googlePayViewModel.notificarError(e.message ?: "Error al configurar Google Pay")
+            Toast.makeText(context, "Error al configurar Google Pay: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = {
-            if (pasoActual == "DETALLE_METODO") {
+            if (pasoActual == "DETALLE_LOCAL") {
                 pasoActual = "SELECCION"
-            } else if (pasoActual != "PROCESANDO") {
+            } else if (pasoActual != "PROCESANDO_GPAY" && pasoActual != "PROCESANDO_LOCAL") {
+                googlePayViewModel.reiniciarEstado()
                 onDismiss()
             }
         },
@@ -1334,11 +1509,11 @@ fun ModalMercadoPagoRecarga(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF009EE3))
+                            .background(Color(0xFF2563EB))
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "MP",
+                            text = "GPay",
                             color = Color.White,
                             fontWeight = FontWeight.Black,
                             fontSize = 11.sp
@@ -1347,13 +1522,13 @@ fun ModalMercadoPagoRecarga(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "Mercado Pago",
-                            color = Color(0xFF009EE3),
+                            text = "Bóveda VIP Gamer",
+                            color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
                         Text(
-                            text = "Recarga de Segundos VIP",
+                            text = "Google Pay & Pasarelas México",
                             color = Color(0xFF94A3B8),
                             fontSize = 11.sp
                         )
@@ -1385,9 +1560,9 @@ fun ModalMercadoPagoRecarga(
             ) {
                 when (pasoActual) {
                     "SELECCION" -> {
-                        // Sección 1: Selección de Paquetes en Horizontal Row Compacto
+                        // 1. Selector de Paquetes VIP
                         Text(
-                            text = "1. Elige tu paquete de minutos:",
+                            text = "1. Elige tu paquete de recarga VIP:",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -1401,7 +1576,7 @@ fun ModalMercadoPagoRecarga(
                             paquetes.forEach { paquete ->
                                 val estaSeleccionado = paqueteSeleccionado.id == paquete.id
                                 val bordeColor = if (estaSeleccionado) {
-                                    if (paquete.id == "vip") Color(0xFFF59E0B) else Color(0xFF009EE3)
+                                    if (paquete.id == "velvet_vip") Color(0xFFF59E0B) else Color(0xFF38BDF8)
                                 } else {
                                     Color(0xFF1E293B)
                                 }
@@ -1409,7 +1584,7 @@ fun ModalMercadoPagoRecarga(
                                 Card(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clickable { paqueteSeleccionado = paquete },
+                                        .clickable { googlePayViewModel.seleccionarPaquete(paquete) },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (estaSeleccionado) Color(0xFF1E293B) else Color(0xFF020617)
@@ -1427,14 +1602,14 @@ fun ModalMercadoPagoRecarga(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(4.dp))
                                                     .background(
-                                                        if (paquete.id == "vip") Color(0xFFF59E0B).copy(alpha = 0.25f)
+                                                        if (paquete.id == "velvet_vip") Color(0xFFF59E0B).copy(alpha = 0.25f)
                                                         else Color(0xFF10B981).copy(alpha = 0.25f)
                                                     )
                                                     .padding(horizontal = 4.dp, vertical = 1.dp)
                                             ) {
                                                 Text(
-                                                    text = if (paquete.id == "vip") "+20% BONO" else "+10% BONO",
-                                                    color = if (paquete.id == "vip") Color(0xFFF59E0B) else Color(0xFF10B981),
+                                                    text = paquete.badge,
+                                                    color = if (paquete.id == "velvet_vip") Color(0xFFF59E0B) else Color(0xFF10B981),
                                                     fontSize = 8.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -1454,13 +1629,13 @@ fun ModalMercadoPagoRecarga(
                                             maxLines = 1
                                         )
                                         Text(
-                                            text = "$${paquete.precioMxn} MXN",
+                                            text = "$${paquete.precioEntero} MXN",
                                             color = Color(0xFF38BDF8),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp
                                         )
                                         Text(
-                                            text = "+${paquete.totalSegundos}s",
+                                            text = "+${paquete.segundos}s",
                                             color = Color(0xFF10B981),
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 11.sp
@@ -1470,136 +1645,204 @@ fun ModalMercadoPagoRecarga(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        // Sección 2: Métodos de Pago Disponibles
-                        Text(
-                            text = "2. Método de pago Mercado Pago:",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-
-                        metodosPago.forEach { metodo ->
-                            val estaSeleccionado = metodoSeleccionado == metodo
-                            Card(
+                        // 2. EN PRIMER PLANO: GOOGLE PAY NATIVO (com.google.pay.button.PayButton)
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.5.dp, Color(0xFF2563EB))
+                        ) {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
-                                    .clickable { metodoSeleccionado = metodo },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (estaSeleccionado) Color(0xFF1E293B) else Color(0xFF020617)
-                                ),
-                                border = BorderStroke(
-                                    if (estaSeleccionado) 1.5.dp else 1.dp,
-                                    if (estaSeleccionado) Color(0xFF009EE3) else Color(0xFF1E293B)
-                                )
+                                    .padding(10.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Selector circular
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (estaSeleccionado) Color(0xFF009EE3) else Color.Transparent
-                                            )
-                                            .border(
-                                                1.5.dp,
-                                                if (estaSeleccionado) Color.White else Color(0xFF64748B),
-                                                CircleShape
-                                            )
-                                    )
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = metodo.icono, fontSize = 16.sp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(text = "⚡", fontSize = 16.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = metodo.titulo,
+                                            text = "Google Pay (Recomendado)",
                                             color = Color.White,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.sp
-                                        )
-                                        Text(
-                                            text = metodo.subtitulo,
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 10.sp,
-                                            maxLines = 1
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
                                         )
                                     }
-
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF009EE3).copy(alpha = 0.15f))
+                                            .background(Color(0xFF10B981).copy(alpha = 0.2f))
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text(
-                                            text = metodo.etiqueta,
-                                            color = Color(0xFF38BDF8),
+                                            text = if (isGooglePayReady) "Listo ✅" else "1-Tap ⚡",
+                                            color = Color(0xFF10B981),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Pago instantáneo con Visa, Mastercard o AMEX encriptado por Google Wallet.",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 10.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Componente nativo oficial PayButton
+                                PayButton(
+                                    onClick = { lanzarGooglePay() },
+                                    allowedPaymentMethods = GooglePayHelper.obtenerAllowedPaymentMethodsArrayJson(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    theme = ButtonTheme.Dark,
+                                    type = ButtonType.Pay,
+                                    radius = 24.dp
+                                )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "🔒 Google Pay API v2 Sandbox México • Sin comisiones adicionales",
+                                    color = Color(0xFF64748B),
+                                    fontSize = 9.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Resumen y Garantía
+                        // 3. SECCIÓN COLAPSABLE: OPCIONES LOCALES DE MÉXICO (SPEI / OXXO / MERCADO PAGO)
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { mostrarMetodosLocales = !mostrarMetodosLocales },
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(1.dp, Color(0xFF1E293B))
                         ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Total a pagar:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                    Text(
-                                        "$${paqueteSeleccionado.precioMxn}.00 MXN",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(text = "🇲🇽", fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Otras opciones locales de México",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = "SPEI STP, OXXO Pay, Código QR y Mercado Pago",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Tiempo acreditado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                    Text(
-                                        "+${paqueteSeleccionado.totalSegundos}s (${paqueteSeleccionado.nombre})",
-                                        color = Color(0xFF10B981),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "🔒 Pago protegido con encriptación SSL por Mercado Pago México.",
-                                    color = Color(0xFF64748B),
-                                    fontSize = 9.sp
+                                    text = if (mostrarMetodosLocales) "▲" else "▼",
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
                                 )
+                            }
+                        }
+
+                        if (mostrarMetodosLocales) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            metodosPagoLocales.forEach { metodo ->
+                                val estaSeleccionado = metodoLocalSeleccionado == metodo
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .clickable { metodoLocalSeleccionado = metodo },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (estaSeleccionado) Color(0xFF1E293B) else Color(0xFF020617)
+                                    ),
+                                    border = BorderStroke(
+                                        if (estaSeleccionado) 1.5.dp else 1.dp,
+                                        if (estaSeleccionado) Color(0xFF009EE3) else Color(0xFF1E293B)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (estaSeleccionado) Color(0xFF009EE3) else Color.Transparent
+                                                )
+                                                .border(
+                                                    1.5.dp,
+                                                    if (estaSeleccionado) Color.White else Color(0xFF64748B),
+                                                    CircleShape
+                                                )
+                                        )
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = metodo.icono, fontSize = 16.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = metodo.titulo,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp
+                                            )
+                                            Text(
+                                                text = metodo.subtitulo,
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 10.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF009EE3).copy(alpha = 0.15f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = metodo.etiqueta,
+                                                color = Color(0xFF38BDF8),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
 
-                    "DETALLE_METODO" -> {
-                        when (metodoSeleccionado) {
+                    "DETALLE_LOCAL" -> {
+                        when (metodoLocalSeleccionado) {
                             MetodoPago.MERCADO_PAGO -> {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1658,10 +1901,10 @@ fun ModalMercadoPagoRecarga(
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text("Cargo por recarga:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("-$${paqueteSeleccionado.precioMxn}.00 MXN", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("-$${paqueteSeleccionado.precioEntero}.00 MXN", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                             }
 
-                                            val saldoFinal = 1450 - paqueteSeleccionado.precioMxn
+                                            val saldoFinal = 1450 - paqueteSeleccionado.precioEntero
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1671,13 +1914,6 @@ fun ModalMercadoPagoRecarga(
                                             }
                                         }
                                     }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "⚡ Acreditación automática en 1 clic protegida por Mercado Pago.",
-                                        color = Color(0xFF64748B),
-                                        fontSize = 10.sp
-                                    )
                                 }
                             }
 
@@ -1696,7 +1932,6 @@ fun ModalMercadoPagoRecarga(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
 
-                                    // Mockup interactivo de tarjeta
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1716,7 +1951,7 @@ fun ModalMercadoPagoRecarga(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("Mercado Pago Card", color = Color(0xFF009EE3), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("Velvet Platinum Card", color = Color(0xFF009EE3), fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                                 Text("VISA / MC", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
                                             }
 
@@ -1746,8 +1981,6 @@ fun ModalMercadoPagoRecarga(
                                     }
 
                                     Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Selector de cuotas
                                     Text(
                                         "Plan de financiamiento:",
                                         color = Color.White,
@@ -1772,7 +2005,7 @@ fun ModalMercadoPagoRecarga(
                                         ) {
                                             Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Text("1 pago de", color = Color(0xFF94A3B8), fontSize = 9.sp)
-                                                Text("$${paqueteSeleccionado.precioMxn} MXN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("$${paqueteSeleccionado.precioEntero} MXN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                                 Text("Al contado", color = Color(0xFF10B981), fontSize = 9.sp)
                                             }
                                         }
@@ -1788,7 +2021,7 @@ fun ModalMercadoPagoRecarga(
                                             border = BorderStroke(1.dp, if (mesesSinIntereses == 3) Color(0xFF009EE3) else Color(0xFF334155))
                                         ) {
                                             Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                                val cuota = paqueteSeleccionado.precioMxn / 3
+                                                val cuota = paqueteSeleccionado.precioEntero / 3
                                                 Text("3 pagos de", color = Color(0xFF94A3B8), fontSize = 9.sp)
                                                 Text("$$cuota MXN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                                 Text("Hasta 3 MSI", color = Color(0xFF38BDF8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -1807,7 +2040,7 @@ fun ModalMercadoPagoRecarga(
                                     Text("🏦 Transferencia SPEI Instantánea", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "Transfiere desde tu app bancaria (BBVA, Banamex, Santander, etc.) con los datos oficiales:",
+                                        "Transfiere desde tu banca móvil (BBVA, Banamex, Santander, etc.) con los datos STP:",
                                         color = Color(0xFF94A3B8),
                                         fontSize = 11.sp,
                                         textAlign = TextAlign.Center
@@ -1864,14 +2097,14 @@ fun ModalMercadoPagoRecarga(
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text("Monto exacto:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("$${paqueteSeleccionado.precioMxn}.00 MXN", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Text("$${paqueteSeleccionado.precioEntero}.00 MXN", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                             }
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text("Concepto:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text(referenciaPago, color = Color(0xFF38BDF8), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                Text(referenciaPagoLocal, color = Color(0xFF38BDF8), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                                             }
                                         }
                                     }
@@ -1948,7 +2181,7 @@ fun ModalMercadoPagoRecarga(
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text("Monto en caja:", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                                Text("$${paqueteSeleccionado.precioMxn}.00 MXN (+ com. tienda)", color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("$${paqueteSeleccionado.precioEntero}.00 MXN (+ com. tienda)", color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                             }
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -2019,10 +2252,10 @@ fun ModalMercadoPagoRecarga(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Text("Ref: $referenciaPago", color = Color(0xFF38BDF8), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                        Text("Ref: $referenciaPagoLocal", color = Color(0xFF38BDF8), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                                         Button(
                                             onClick = {
-                                                clipboardManager.setText(AnnotatedString(referenciaPago))
+                                                clipboardManager.setText(AnnotatedString(referenciaPagoLocal))
                                                 Toast.makeText(context, "Folio QR copiado", Toast.LENGTH_SHORT).show()
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
@@ -2033,13 +2266,41 @@ fun ModalMercadoPagoRecarga(
                                             Text("📋 Copiar", color = Color(0xFF38BDF8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
-                                    Text("Monto: $${paqueteSeleccionado.precioMxn}.00 MXN", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Monto: $${paqueteSeleccionado.precioEntero}.00 MXN", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
 
-                    "PROCESANDO" -> {
+                    "PROCESANDO_GPAY" -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF2563EB),
+                                modifier = Modifier.size(44.dp),
+                                strokeWidth = 3.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "Conectando con Google Wallet...",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Acreditando segundos en Cloud Firestore...",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    "PROCESANDO_LOCAL" -> {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2053,21 +2314,104 @@ fun ModalMercadoPagoRecarga(
                             )
                             Spacer(modifier = Modifier.height(14.dp))
                             Text(
-                                text = "Conectando con Mercado Pago Gateway...",
+                                text = "Procesando pago con pasarela local...",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Verificando acreditación y tokens seguros SSL...",
+                                text = "Confirmando acreditación de fondos...",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.sp
                             )
                         }
                     }
 
-                    "EXITO" -> {
+                    "EXITO_GPAY" -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("🎉", fontSize = 40.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "¡Recarga Google Pay Exitosa!",
+                                color = Color(0xFF10B981),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "Acreditación atómica completada en Cloud Firestore",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF10B981))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Tiempo acreditado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                        Text(
+                                            "+${paqueteSeleccionado.segundos}s (${paqueteSeleccionado.nombre})",
+                                            color = Color(0xFF10B981),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Monto pagado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                        Text(
+                                            "$${paqueteSeleccionado.precioEntero}.00 MXN",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Tarjeta vinculada:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                        Text(
+                                            "${transaccionGPayExito?.cardNetwork ?: "VISA"} •••• ${transaccionGPayExito?.cardDetails ?: "••••"}",
+                                            color = Color(0xFF38BDF8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Folio Transacción:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                        Text(
+                                            transaccionIdGPay.take(12),
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "EXITO_LOCAL" -> {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2103,7 +2447,7 @@ fun ModalMercadoPagoRecarga(
                                     ) {
                                         Text("Tiempo acreditado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
-                                            "+${paqueteSeleccionado.totalSegundos}s (${paqueteSeleccionado.nombre})",
+                                            "+${paqueteSeleccionado.segundos}s (${paqueteSeleccionado.nombre})",
                                             color = Color(0xFF10B981),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp
@@ -2115,7 +2459,7 @@ fun ModalMercadoPagoRecarga(
                                     ) {
                                         Text("Monto pagado:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
-                                            "$${paqueteSeleccionado.precioMxn}.00 MXN",
+                                            "$${paqueteSeleccionado.precioEntero}.00 MXN",
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 11.sp
@@ -2127,7 +2471,7 @@ fun ModalMercadoPagoRecarga(
                                     ) {
                                         Text("Método:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
-                                            metodoSeleccionado.titulo,
+                                            metodoLocalSeleccionado.titulo,
                                             color = Color(0xFF38BDF8),
                                             fontSize = 11.sp
                                         )
@@ -2138,7 +2482,7 @@ fun ModalMercadoPagoRecarga(
                                     ) {
                                         Text("Folio Mercado Pago:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                         Text(
-                                            referenciaPago,
+                                            referenciaPagoLocal,
                                             color = Color.White,
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 11.sp
@@ -2154,39 +2498,42 @@ fun ModalMercadoPagoRecarga(
         confirmButton = {
             when (pasoActual) {
                 "SELECCION" -> {
-                    Button(
-                        onClick = { pasoActual = "DETALLE_METODO" },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF009EE3)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "💳 Continuar ($${paqueteSeleccionado.precioMxn} MXN) →",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                    if (mostrarMetodosLocales) {
+                        Button(
+                            onClick = { pasoActual = "DETALLE_LOCAL" },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF009EE3)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "Continuar con Método Local ($${paqueteSeleccionado.precioEntero} MXN) →",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
-                "DETALLE_METODO" -> {
+                "DETALLE_LOCAL" -> {
                     Button(
                         onClick = {
-                            pasoActual = "PROCESANDO"
+                            pasoActual = "PROCESANDO_LOCAL"
                             coroutineScope.launch {
                                 delay(1200)
                                 onRecargaExitosa(
-                                    paqueteSeleccionado.totalSegundos,
-                                    paqueteSeleccionado.precioMxn
+                                    paqueteSeleccionado.segundos,
+                                    paqueteSeleccionado.precioEntero,
+                                    false
                                 )
-                                pasoActual = "EXITO"
+                                pasoActual = "EXITO_LOCAL"
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (metodoSeleccionado == MetodoPago.MERCADO_PAGO) Color(0xFF009EE3) else Color(0xFF10B981)
+                            containerColor = if (metodoLocalSeleccionado == MetodoPago.MERCADO_PAGO) Color(0xFF009EE3) else Color(0xFF10B981)
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        val textoBoton = when (metodoSeleccionado) {
+                        val textoBoton = when (metodoLocalSeleccionado) {
                             MetodoPago.MERCADO_PAGO -> "⚡ Pagar con Saldo Mercado Pago"
-                            MetodoPago.TARJETA -> "🔒 Pagar $${paqueteSeleccionado.precioMxn} MXN"
+                            MetodoPago.TARJETA -> "🔒 Pagar $${paqueteSeleccionado.precioEntero} MXN"
                             MetodoPago.SPEI -> "✅ Ya transferí / Simular SPEI"
                             MetodoPago.OXXO -> "🏪 Simular Depósito OXXO Pay"
                             MetodoPago.QR -> "📱 Simular Pago con App MP"
@@ -2194,9 +2541,12 @@ fun ModalMercadoPagoRecarga(
                         Text(text = textoBoton, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
-                "EXITO" -> {
+                "EXITO_GPAY", "EXITO_LOCAL" -> {
                     Button(
-                        onClick = onDismiss,
+                        onClick = {
+                            googlePayViewModel.reiniciarEstado()
+                            onDismiss()
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -2210,18 +2560,21 @@ fun ModalMercadoPagoRecarga(
             when (pasoActual) {
                 "SELECCION" -> {
                     OutlinedButton(
-                        onClick = onDismiss,
+                        onClick = {
+                            googlePayViewModel.reiniciarEstado()
+                            onDismiss()
+                        },
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text("Cerrar", color = Color(0xFF94A3B8))
                     }
                 }
-                "DETALLE_METODO" -> {
+                "DETALLE_LOCAL" -> {
                     OutlinedButton(
                         onClick = { pasoActual = "SELECCION" },
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("← Volver a Paquetes", color = Color(0xFF94A3B8))
+                        Text("← Volver", color = Color(0xFF94A3B8))
                     }
                 }
                 else -> null

@@ -112,9 +112,30 @@
   - [x] Integración en [`app/build.gradle.kts`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/build.gradle.kts) de `play-services-wallet:19.5.0`, `compose-pay-button:1.2.0` y `kotlinx-coroutines-play-services:1.11.0`.
   - [x] Declaración en [`app/src/main/AndroidManifest.xml`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/src/main/AndroidManifest.xml) de la meta-data obligatoria `com.google.android.gms.wallet.api.enabled`.
   - [x] Verificación de compilación y 76/76 pruebas unitarias exitosas (0 fallos).
-- [ ] **Paso 2: Configuración del Cliente `PaymentsClient` y `GooglePayHelper`**
-- [ ] **Paso 3: Integración del Botón `PayButton` en `ModalMercadoPagoRecarga`**
-- [ ] **Paso 4: Manejo de Respuesta de Pago y Acreditación de Saldo**
+- [x] **Paso 2: Configuración del Cliente `PaymentsClient` y `GooglePayHelper`**
+  - [x] Creación del módulo desacoplado [`GooglePayHelper.kt`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/src/main/java/com/example/my1eraapplication/googlepay/GooglePayHelper.kt) con especificación Google Pay API v2 (`apiVersion: 2, apiVersionMinor: 0`).
+  - [x] Configuración de parámetros base para México: Moneda `"MXN"`, País `"MX"`, Redes `["VISA", "MASTERCARD", "AMEX"]`, Métodos `["PAN_ONLY", "CRYPTOGRAM_3DS"]`.
+  - [x] Parametrización de pasarela tokenizada `"PAYMENT_GATEWAY"` para `ENVIRONMENT_TEST` (`gateway: "example"`) y constantes para `ENVIRONMENT_PRODUCTION` (`gateway: "mercadopago"`, `merchantId: "12345678901234567890"`).
+  - [x] Corrección crítica: Inclusión obligatoria de `merchantId` en `merchantInfo` para `ENVIRONMENT_PRODUCTION` para evitar rechazo `DEVELOPER_ERROR` de Google Play Services.
+  - [x] Catálogo oficial de paquetes VIP en MXN con equivalencia en segundos: Bronce ($50 MXN -> +300s), Plata ($150 MXN -> +1,200s) y Velvet VIP ($300 MXN -> +3,000s).
+  - [x] Validación estricta con rechazo de montos nulos (`null`), negativos, cero, `NaN`, `Infinity` o no registrados en catálogo VIP.
+  - [x] Consulta asíncrona de disponibilidad con `PaymentsClient.isReadyToPay` y corrutinas.
+  - [x] Creación de [`GooglePayViewModel.kt`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/src/main/java/com/example/my1eraapplication/viewmodel/GooglePayViewModel.kt) con `StateFlow<Boolean>` reactivo (`isReadyToPay`), `paqueteSeleccionado` y `estadoPago`.
+- [x] **Paso 3: Integración del Botón `PayButton` en `ModalMercadoPagoRecarga`**
+  - [x] Colocación en primer plano del componente nativo `PayButton` de `com.google.pay.button:compose-pay-button` (tema oscuro acorde al HUD en "U" de Velvet VIP, bordes redondeados `24.dp`, ancho completo).
+  - [x] Conexión real del ciclo de vida y estado de selección al `GooglePayViewModel` (`viewModel()`), eliminando bypass arquitectónico y estados huérfanos.
+  - [x] Lanzador con `ActivityResultContracts.StartIntentSenderForResult`, manejo robusto de `result.data` nulo, código desconocido y fallback `AutoResolveHelper.resolveTask`.
+  - [x] Sección colapsable inferior con las opciones locales de México (SPEI con CLABE STP, OXXO Pay, QR y Mercado Pago) para usuarios sin tarjeta vinculada a Google Wallet.
+- [x] **Paso 4: Manejo de Respuesta de Pago y Acreditación de Saldo**
+  - [x] Parser robusto de `PaymentData` extrayendo `token`, `cardNetwork` y `cardDetails`, con fallback blindado ante strings vacíos o info ausente.
+  - [x] Generación de `tokenHash` seguro SHA-256 para auditoría sin exponer datos sensibles.
+  - [x] Escritura atómica en Cloud Firestore: registro auditable en `transacciones` e incremento de segundos del Gamer usando `FieldValue.increment(segundosAcreditados)` con `SetOptions.merge()`.
+  - [x] Pantalla de confirmación con recibo VIP interactivo y actualización de saldo en tiempo real.
+- [x] **Paso 5: Pruebas Unitarias y Verificación Dual en Hardware Físico**
+  - [x] Suite de pruebas unitarias [`GooglePayConfigTest.kt`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/src/test/java/com/example/my1eraapplication/googlepay/GooglePayConfigTest.kt) ampliada a 13 pruebas exhaustivas (validación JSON API v2, moneda MXN, país MX, `merchantId` en producción, catálogo exacto, rechazo de montos nulos/NaN/negativos, fallbacks del parser, hashes SHA-256, atomic batch y ViewModel reactivo).
+  - [x] Ejecución de `./gradlew testGamerDebugUnitTest testModeloDebugUnitTest`: 102/102 pruebas aprobadas al 100% (76 preexistentes + 26 de Google Pay).
+  - [x] Compilación dual exitosa con `./gradlew assembleGamerDebug assembleModeloDebug` (0 errores).
+  - [x] Instalación por ADB y prueba en vivo en Samsung Galaxy A06 (`192.168.100.3:5555`), confirmando renderizado del botón nativo, apertura de la hoja de Google Wallet en modo prueba ($300.00 MXN Velvet VIP) y acreditación exitosa en Firestore (+3,000s, saldo total 5,971s).
 
 
 
