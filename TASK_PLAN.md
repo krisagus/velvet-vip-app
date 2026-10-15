@@ -82,8 +82,12 @@
   - [x] Notificación y guía al usuario para conectar el teléfono Motorola (Gamer).
 - [x] Conexión y detección por ADB del teléfono Motorola (Gamer).
 - [x] Instalación y verificación de `app-velvet-vip.apk` en el dispositivo Motorola (interfaz moderna en 'U' invertida confirmada por captura de pantalla).
-- [ ] Conexión a Internet en Motorola (activar Wi-Fi o Zona Portátil del Samsung).
-- [ ] Prueba de videollamada P2P en vivo de extremo a extremo (Modelo Samsung <-> Gamer Motorola).
+- [x] Conexión a Internet en Motorola (detectada en Wi-Fi 192.168.100.2).
+- [x] Prueba de videollamada P2P en vivo de extremo a extremo (Modelo Samsung <-> Gamer Motorola):
+  - [x] Señalización WebRTC sobre Cloud Firestore Querétaro (`sala_vip_1`).
+  - [x] Streaming de video hardware VP8 decodificado y renderizado a 20.0 fps (0 frames caídos) con OpenGL ES.
+  - [x] HUD perimetral en "U" invertida activo y responsive en ambos dispositivos.
+  - [x] Sincronización en vivo de minijuego tragamonedas, bonos dobles y saldo ($1983.25 MXN acumulados por la modelo).
 
 ## 6. Protocolo de Ejecución en 3 Fases: Git, Releases v1.5.0, Firebase y Prueba en Vivo
 - [x] **FASE 1: Blindaje e Inicialización Git + Release v1.5.0 en GitHub**
@@ -97,10 +101,11 @@
   - [x] Actualización de enlaces en `index.html` hacia el Release de GitHub v1.5.0 para resolución de descargas globales.
   - [x] Despliegue con `firebase deploy --only hosting` exitoso en `local-casino-hub-970df`.
   - [x] Verificación HTTP en vivo (`curl -I https://local-casino-hub-970df.web.app` -> `HTTP/2 200 OK`).
-- [ ] **FASE 3: Preparación de Entorno para Prueba P2P en Vivo**
-  - [x] Verificación de estado de dispositivos con `adb devices -l` (Samsung Galaxy A06 en línea por USB y Wi-Fi).
+- [x] **FASE 3: Preparación y Ejecución de Prueba P2P en Vivo**
+  - [x] Verificación de estado de dispositivos con `adb devices -l` (Samsung Galaxy A06 y Motorola Moto G20 conectados).
   - [x] Preparación de script ejecutable de monitoreo [`monitor_p2p_test.sh`](file:///home/asus/AndroidStudioProjects/My1eraApplication/monitor_p2p_test.sh) con filtros WebRTC y AndroidRuntime.
-  - [ ] Reconexión de Motorola Moto G20 (USB o Wi-Fi).
-  - [ ] Ejecución de videollamada P2P en vivo (Samsung A06 ↔ Moto G20).
+  - [x] Reconexión exitosa de Motorola Moto G20 en ADB (`N5OEB50228`) y en red Wi-Fi local (`192.168.100.2`).
+  - [x] Ejecución de videollamada P2P en vivo (Samsung A06 ↔ Moto G20) con captura de video bidireccional, OpenGL ES y sincronización de Firestore.
+
 
 
