@@ -103,6 +103,11 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.play.services.location)
     implementation(libs.retrofit)
+
+    // Google Pay API Oficial & Compose Pay Button
+    implementation("com.google.android.gms:play-services-wallet:19.5.0")
+    implementation("com.google.pay.button:compose-pay-button:1.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
     testImplementation(libs.androidx.core)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.junit)

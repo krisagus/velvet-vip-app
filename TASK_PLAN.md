@@ -107,5 +107,15 @@
   - [x] Reconexión exitosa de Motorola Moto G20 en ADB (`N5OEB50228`) y en red Wi-Fi local (`192.168.100.2`).
   - [x] Ejecución de videollamada P2P en vivo (Samsung A06 ↔ Moto G20) con captura de video bidireccional, OpenGL ES y sincronización de Firestore.
 
+## 7. Módulo de Monetización Híbrido: Google Pay API Nativo + Métodos Secundarios
+- [x] **Paso 1: Dependencias y Manifiesto (Google Pay Oficial)**
+  - [x] Integración en [`app/build.gradle.kts`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/build.gradle.kts) de `play-services-wallet:19.5.0`, `compose-pay-button:1.2.0` y `kotlinx-coroutines-play-services:1.11.0`.
+  - [x] Declaración en [`app/src/main/AndroidManifest.xml`](file:///home/asus/AndroidStudioProjects/My1eraApplication/app/src/main/AndroidManifest.xml) de la meta-data obligatoria `com.google.android.gms.wallet.api.enabled`.
+  - [x] Verificación de compilación y 76/76 pruebas unitarias exitosas (0 fallos).
+- [ ] **Paso 2: Configuración del Cliente `PaymentsClient` y `GooglePayHelper`**
+- [ ] **Paso 3: Integración del Botón `PayButton` en `ModalMercadoPagoRecarga`**
+- [ ] **Paso 4: Manejo de Respuesta de Pago y Acreditación de Saldo**
+
+
 
 
